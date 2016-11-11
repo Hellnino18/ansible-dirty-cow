@@ -2,31 +2,35 @@
 - include_vars: "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yml"
   when: ansible_os_family == "Debian"
 
-- name: Verification existence du fichier de resultat
+- name: Check if resultFile exists
   stat: path="{{ resultFile }}"
   register: st
 
-- name: Suppression du fichier de resultat
+- name: Delete resultFile only if exists
   file: path="{{ resultFile }}" state=absent
   when: st.stat.exists == True
 
-- name: Recuperation de la version du Kernel Debian / Ubuntu
+- name: Get Last Kernel Version of Debian / Ubuntu with dpkg (different version between uname -r = ansible_kernel / uname -v )de la version du Kernel Debian / Ubuntu
   shell: dpkg -l linux-image* | grep ii | grep -v meta-package| cut -d " " -f 4
   register: kernelDebVersion
   when: ansible_os_family == "Debian"
 
-- name: Execute rh-cve-2016-5195_1.sh script and get output
+- name: Execute rh-cve-2016-5195_1.sh script and get full output
   script: files/rh-cve-2016-5195_1.sh
   ignore_errors: yes
   register: result_check_rhel
   when: ansible_os_family == "RedHat"
 
-- set_fact: Vulnerable="{{ kernelDebVersion.stdout | version_compare(version, '<') }}"
+- set_fact: vulnerability="{{ kernelDebVersion.stdout | version_compare(version, '<') }}"
   when: ansible_os_family == "Debian"
 
-- set_fact: Vulnerable="{% if result_check_rhel.rc == 2 or result_check_rhel.rc == 3 %} True {% else %} False {% endif %}"
+- set_fact: vulnerability="{% if result_check_rhel.rc == 2 or result_check_rhel.rc == 3 %} True {% else %} False {% endif %}"
   when: ansible_os_family == "RedHat"
 
-- name: Copie des informations du kernel si vulnerable
-  shell: echo "{{ ansible_hostname }};{{ ansible_distribution }};{{ ansible_distribution_version }};{{ ansible_kernel }};{{ Vulnerable }}" >> {{ resultFile }}
+- name: Write all information about the vulnerability into the resultFile
+  shell: echo "{{ ansible_hostname }};{{ ansible_distribution }};{{ ansible_distribution_version }};{{ ansible_kernel }};{{ vulnerability }}" >> "{{ resultFile }}"
   delegate_to: localhost
+
+- name: Upgrade Debian / Ubuntu Kernel if too old
+  apt: name=linux-image-amd64 update_cache=yes cache_valid_time=3600 state=latest
+  when: ansible_os_family == "Debian" and vulnerability == True
