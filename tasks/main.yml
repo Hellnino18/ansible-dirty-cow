@@ -1,0 +1,32 @@
+---
+- include_vars: "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yml"
+  when: ansible_os_family == "Debian"
+
+- name: Verification existence du fichier de resultat
+  stat: path="{{ resultFile }}"
+  register: st
+
+- name: Suppression du fichier de resultat
+  file: path="{{ resultFile }}" state=absent
+  when: st.stat.exists == True
+
+- name: Recuperation de la version du Kernel Debian / Ubuntu
+  shell: dpkg -l linux-image* | grep ii | grep -v meta-package| cut -d " " -f 4
+  register: kernelDebVersion
+  when: ansible_os_family == "Debian"
+
+- name: Execute rh-cve-2016-5195_1.sh script and get output
+  script: files/rh-cve-2016-5195_1.sh
+  ignore_errors: yes
+  register: result_check_rhel
+  when: ansible_os_family == "RedHat"
+
+- set_fact: Vulnerable="{{ kernelDebVersion.stdout | version_compare(version, '<') }}"
+  when: ansible_os_family == "Debian"
+
+- set_fact: Vulnerable="{% if result_check_rhel.rc == 2 or result_check_rhel.rc == 3 %} True {% else %} False {% endif %}"
+  when: ansible_os_family == "RedHat"
+
+- name: Copie des informations du kernel si vulnerable
+  shell: echo "{{ ansible_hostname }};{{ ansible_distribution }};{{ ansible_distribution_version }};{{ ansible_kernel }};{{ Vulnerable }}" >> {{ resultFile }}
+  delegate_to: localhost
